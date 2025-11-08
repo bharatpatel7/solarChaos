@@ -3,6 +3,10 @@ import pandas as pd
 import numpy as np
 import datetime as dt
 import math
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from sgp4.earth_gravity import wgs84
+from sgp4.io import twoline2rv
 
 from satellite_modules import (
     satellite_age_and_EOL,
@@ -15,26 +19,115 @@ from satellite_modules import (
 
 def generate_orbit_path(altitude_km: float, inclination_deg: float, num_points: int = 180):
     """
-    Generate a simple illustrative ground-track style orbit path.
+    Generate a simple illustrative 3D orbit path.
 
-    Not physically perfect, but visually compelling and parameter-driven:
-    - Uses inclination to tilt the track.
-    - Wraps longitude  -180 to 180.
+    Returns a numpy array of points with x, y, z coordinates.
     """
     inc = math.radians(inclination_deg)
+    R = 6371 + altitude_km  # Earth radius + altitude in km
     points = []
 
     for i in range(num_points + 1):
-        # angle along orbit
         theta = 2 * math.pi * (i / num_points)
+        
+        # Calculate 3D coordinates
+        x = R * math.cos(theta) * math.cos(inc)
+        y = R * math.cos(theta) * math.sin(inc)
+        z = R * math.sin(theta)
+        
+        points.append([x, y, z])
 
-        # simple model: lat oscillates with inclination, lon sweeps 0-360
-        lat = math.degrees(math.asin(math.sin(inc) * math.sin(theta)))
-        lon = math.degrees(theta) - 180  # center on 0
+    return np.array(points)
 
-        points.append([lon, lat])
+# New helper functions for 3D visualization
+def create_earth_sphere():
+    """Create a textured Earth sphere for Plotly"""
+    phi = np.linspace(0, 2*np.pi, 100)
+    theta = np.linspace(-np.pi/2, np.pi/2, 100)
+    phi, theta = np.meshgrid(phi, theta)
+    
+    R = 6371  # Earth radius in km
+    x = R * np.cos(theta) * np.cos(phi)
+    y = R * np.cos(theta) * np.sin(phi)
+    z = R * np.sin(theta)
+    
+    return go.Surface(
+        x=x, y=y, z=z,
+        colorscale='Blues',
+        showscale=False,
+        opacity=0.8
+    )
 
-    return [{"name": "Orbit Path", "path": points}]
+def plot_orbit_3d(altitude_km, inclination_deg, debris_data=None):
+    """Create 3D orbit visualization with debris"""
+    fig = make_subplots(specs=[[{'type': 'scene'}]])
+    
+    # Add Earth
+    fig.add_trace(create_earth_sphere())
+    
+    # Generate orbit points
+    orbit_points = generate_orbit_path(altitude_km, inclination_deg)
+    
+    # Add orbit path
+    fig.add_trace(go.Scatter3d(
+        x=orbit_points[:, 0],
+        y=orbit_points[:, 1],
+        z=orbit_points[:, 2],
+        mode='lines',
+        line=dict(color='#38bdf8', width=3),
+        name='Orbit Path'
+    ))
+    
+    # Add debris if provided
+    if debris_data is not None:
+            if 'size' in debris_data and 'color' in debris_data:
+                # For enhanced debris visualization with different sizes and colors
+                fig.add_trace(go.Scatter3d(
+                    x=debris_data['x'],
+                    y=debris_data['y'],
+                    z=debris_data['z'],
+                    mode='markers',
+                    marker=dict(
+                        size=debris_data['size'],
+                        color=debris_data['color'],
+                        opacity=0.7
+                    ),
+                    name='Space Debris'
+                ))
+            else:
+                # Fallback for simple debris visualization
+                fig.add_trace(go.Scatter3d(
+                    x=debris_data['x'],
+                    y=debris_data['y'],
+                    z=debris_data['z'],
+                    mode='markers',
+                    marker=dict(
+                        size=4,
+                        color='red',
+                        opacity=0.6
+                    ),
+                    name='Space Debris'
+                ))
+    
+    # Update layout
+    fig.update_layout(
+        scene=dict(
+            aspectmode='data',
+            camera=dict(
+                eye=dict(x=1.5, y=1.5, z=1.5)
+            ),
+            xaxis=dict(showbackground=False),
+            yaxis=dict(showbackground=False),
+            zaxis=dict(showbackground=False)
+        ),
+        margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=True,
+        template="plotly_dark",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    return fig
 
 # ---------- Page Config ----------
 
@@ -395,85 +488,241 @@ with tab1:
             unsafe_allow_html=True,
         )
 
-# ---- TAB 2: Solar & Debris Analysis ----
+# ---- TAB 2: Solar & Debris Analysis (simplified) ----
 
 with tab2:
-    col1, col2 = st.columns([1.4, 1.6])
+    st.markdown("#### 🌞 Solar Storm & Space Debris Risk Analysis")
 
-    with col1:
-        st.markdown("#### 🌞 Solar Storm Risk Profile")
+    # Let user pick which risk to explore; we'll not show the large info cards — only the 3D models
+    risk_type = st.radio(
+        "What would you like to learn about?",
+        ["🌞 Solar Storm Risk", "🛸 Space Debris Risk"],
+        horizontal=True,
+        key="risk_selector"
+    )
 
-        df_solar = pd.DataFrame(
-            {
-                "Year": mission_years,
-                "Relative Risk": [
-                    solar_score if y in solar["solar_peak_overlap"] else solar_score * 0.35
-                    for y in mission_years
-                ],
-            }
-        )
-        st.line_chart(df_solar.set_index("Year"), height=260)
+    st.markdown("### ")
 
-        overlap = solar["solar_peak_overlap"]
-        if overlap:
-            st.markdown(
-                f"""
-                <div class="solar-card" style="margin-top:0.7rem; font-size:0.78rem;">
-                    <b>Peak overlap years:</b> {", ".join(map(str, overlap))}. 
-                    Critical systems should be hardened for these epochs.
-                </div>
-                """,
-                unsafe_allow_html=True,
+    if risk_type == "🌞 Solar Storm Risk":
+        # Animated, more informative solar 3D view with moving satellite and improved energy waves
+        col_left, col_right = st.columns([2, 1])
+
+        with col_left:
+            st.markdown("#### Watch How Solar Storms Affect Your Satellite!")
+
+            # Animation controls
+            autoplay = st.checkbox("Autoplay animation", value=True, key="solar_autoplay")
+            speed_ms = st.slider("Animation speed (ms per frame)", 40, 800, 180, step=20, key="solar_speed")
+            num_frames = 24  # slightly smoother
+
+            # Build spherical mesh (lower resolution for performance)
+            theta = np.linspace(0, 2 * np.pi, 64)
+            phi = np.linspace(0, np.pi, 32)
+            theta, phi = np.meshgrid(theta, phi)
+
+            r = 1.0
+            x = r * np.sin(phi) * np.cos(theta)
+            y = r * np.sin(phi) * np.sin(theta)
+            z = r * np.cos(phi)
+
+            # Deterministic RNG for consistent visuals
+            rng = np.random.RandomState(2025)
+
+            # Flares specification
+            n_flares = 14
+            flare_angles = rng.rand(n_flares) * 2 * np.pi
+            flare_heights = rng.rand(n_flares) * 0.7 + 0.35
+
+            # Energy wave rings (concentric animated rings) for aesthetic energy ripples
+            n_rings = 5
+            ring_base_radii = np.linspace(1.02, 1.18, n_rings)
+            ring_colors = ['#ffd93d', '#ffb86b', '#ff8a65', '#ff6b6b', '#ff4757']
+
+            # Precompute satellite path positions for frames
+            sat_radius = 2.0
+            sat_path_x = [sat_radius * math.cos(2 * math.pi * f / num_frames) for f in range(num_frames)]
+            sat_path_y = [sat_radius * math.sin(2 * math.pi * f / num_frames) for f in range(num_frames)]
+            sat_path_z = [0.2 * math.sin(2 * math.pi * f / num_frames / 2) for f in range(num_frames)]
+
+            # Build base surface trace
+            base_intensity = np.sin(6 * theta) * np.cos(3 * phi)
+            traces = [go.Surface(x=x, y=y, z=z, surfacecolor=base_intensity,
+                                 colorscale=[[0, '#fff5b1'], [0.5, '#ffa07a'], [1, '#ff4500']],
+                                 showscale=False, opacity=0.96, name='Solar Surface')]
+
+            # Add placeholder for rings (as line loops) and flares; frames will update them
+            for i in range(n_rings):
+                t = np.linspace(0, 2 * np.pi, 120)
+                xr = ring_base_radii[i] * np.cos(t)
+                yr = ring_base_radii[i] * np.sin(t)
+                zr = 0.025 * np.sin(3 * t)  # subtle ripples
+                traces.append(go.Scatter3d(x=xr, y=yr, z=zr, mode='lines',
+                                           line=dict(color=ring_colors[i], width=4), opacity=0.6, showlegend=False))
+
+            # Add placeholder flares
+            for i in range(n_flares):
+                ang = flare_angles[i]
+                h = flare_heights[i]
+                pts = np.linspace(1.0, 1.0 + h, 30)
+                xf = pts * np.cos(ang)
+                yf = pts * np.sin(ang)
+                zf = np.linspace(-0.35, 0.35, len(pts)) * (0.7 + 0.3 * rng.rand())
+                traces.append(go.Scatter3d(x=xf, y=yf, z=zf, mode='lines',
+                                           line=dict(color='#ff4757', width=3 + (i % 3)), opacity=0.9, showlegend=False))
+
+            # Satellite path (line) and marker (will be updated per frame)
+            traces.append(go.Scatter3d(x=[sat_path_x[0]], y=[sat_path_y[0]], z=[sat_path_z[0]],
+                                       mode='lines', line=dict(color='#38bdf8', width=2), name='Satellite Path', showlegend=False))
+            traces.append(go.Scatter3d(x=[sat_path_x[0]], y=[sat_path_y[0]], z=[sat_path_z[0]],
+                                       mode='markers', marker=dict(size=8, color='#38bdf8', symbol='diamond'), name='Satellite', showlegend=False))
+
+            fig = go.Figure(data=traces)
+
+            # Create frames to animate surface wobble, rings and flares, and move satellite with trailing path
+            frames = []
+            for f in range(num_frames):
+                phase = 2 * math.pi * f / num_frames
+                # surface intensity with a low-frequency modulation
+                intensity = np.sin(6 * (theta + 0.08 * phase)) * np.cos(3 * (phi + 0.05 * phase))
+                intensity = intensity + (rng.rand(*theta.shape) - 0.5) * 0.08
+
+                frame_data = []
+                # surface update
+                frame_data.append(go.Surface(x=x, y=y, z=z, surfacecolor=intensity))
+
+                # rings update: small breathing + rotation
+                for i in range(n_rings):
+                    t = np.linspace(0, 2 * np.pi, 120)
+                    breathing = 0.01 * math.sin(phase * (1 + 0.3 * i))
+                    radius = ring_base_radii[i] + breathing
+                    xr = radius * np.cos(t + phase * (0.2 + 0.05 * i))
+                    yr = radius * np.sin(t + phase * (0.2 + 0.05 * i))
+                    zr = 0.03 * np.sin(3 * (t + phase))
+                    frame_data.append(go.Scatter3d(x=xr, y=yr, z=zr, mode='lines',
+                                                   line=dict(color=ring_colors[i], width=4), opacity=0.6, showlegend=False))
+
+                # flares update
+                for i in range(n_flares):
+                    ang = flare_angles[i] + phase * (0.5 + 0.2 * (i % 3))
+                    h = flare_heights[i]
+                    pts = np.linspace(1.0, 1.0 + h, 30)
+                    xf = pts * np.cos(ang)
+                    yf = pts * np.sin(ang)
+                    zf = np.linspace(-0.35, 0.35, len(pts)) * (0.7 + 0.3 * ((i + f) % 5) / 5)
+                    frame_data.append(go.Scatter3d(x=xf, y=yf, z=zf, mode='lines',
+                                                   line=dict(color='#ff4757', width=3 + (i % 3)), opacity=0.95, showlegend=False))
+
+                # satellite: path up to this frame and current marker
+                path_x = sat_path_x[: f + 1]
+                path_y = sat_path_y[: f + 1]
+                path_z = sat_path_z[: f + 1]
+                frame_data.append(go.Scatter3d(x=path_x, y=path_y, z=path_z, mode='lines',
+                                               line=dict(color='#38bdf8', width=3), opacity=0.9, showlegend=False))
+                frame_data.append(go.Scatter3d(x=[sat_path_x[f]], y=[sat_path_y[f]], z=[sat_path_z[f]], mode='markers',
+                                               marker=dict(size=9, color='#38bdf8', symbol='diamond'), showlegend=False))
+
+                frames.append(go.Frame(data=frame_data, name=str(f)))
+
+            fig.frames = frames
+
+            fig.update_layout(
+                scene=dict(xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False),
+                           camera=dict(eye=dict(x=2.5, y=2.5, z=1.5))),
+                margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor='rgba(0,0,0,0)', showlegend=False
             )
-        else:
-            st.markdown(
-                """
-                <div class="solar-card" style="margin-top:0.7rem; font-size:0.78rem;">
-                    No direct overlap with cycle peaks: lower long-term solar stress.
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
 
-    with col2:
-        st.markdown("#### 🗑️ Debris Collision Assessment")
+            if autoplay:
+                fig.update_layout(
+                    updatemenus=[{
+                        'type': 'buttons', 'showactive': False, 'y': 0, 'x': 0.05,
+                        'buttons': [{
+                            'label': 'Play',
+                            'method': 'animate',
+                            'args': [None, {"frame": {"duration": speed_ms, "redraw": True}, "fromcurrent": True, "transition": {"duration": 0}}]
+                        }]
+                    }]
+                )
 
-        st.markdown(
-            f"""
-            <div class="solar-card" style="font-size:0.8rem;">
-                <p>
-                Orbit resides in the <b>{debris['debris_zone']}</b> congestion band with a 
-                normalized collision risk score of <b>{debris['collision_risk_score']}</b>
-                over a planned <b>{mission_duration_years}-year</b> mission.
-                </p>
-                <p>
-                Risk level: <b>{debris['collision_risk_level']}</b>.
-                Use this comparatively when exploring nearby orbital shells live.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            st.plotly_chart(fig, use_container_width=True)
 
-        radar = {
-            "Debris": min(5, debris["collision_risk_score"] * 8),
-            "Solar": solar_score * 5,
-            "Lifetime": min(5, lifetime_years / 6),
-        }
-        radar_str = " | ".join(f"{k}: {'█' * int(v)}" for k, v in radar.items())
+        with col_right:
+            # Informational side panel with visual indicators
+            st.markdown("#### Solar Snapshot")
+            st.markdown(f"**Solar Storm Risk:**  {solar['solar_storm_risk']}")
+            st.markdown(f"**Estimated impact probability:**  {(solar_score * 100):.0f}%")
+            if solar.get('solar_peak_overlap'):
+                years = ", ".join(str(y) for y in solar['solar_peak_overlap'])
+                st.markdown(f"**Mission overlaps peak years:**  {years}")
 
-        st.markdown(
-            f"""
-            <div class="solar-card" style="margin-top:0.7rem; font-size:0.78rem;">
-                <div class="section-label">Compact Risk Radar</div>
-                <div style="margin-top:0.25rem; font-family:monospace;">{radar_str}</div>
-                <div style="margin-top:0.35rem; color:#6b7280;">
-                    More blocks = more stress on that axis. Great for side-by-side mission comparisons.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            st.markdown("**Visual legend:**")
+            st.markdown("<div style='display:flex; gap:0.5rem; align-items:center;'>"
+                        "<div style='width:14px; height:14px; background:#ff4757; border-radius:3px;'></div> <div>Flares (energetic)</div>"
+                        "</div>", unsafe_allow_html=True)
+            st.markdown("<div style='display:flex; gap:0.5rem; align-items:center; margin-top:6px;'>"
+                        "<div style='width:14px; height:14px; background:#ffd93d; border-radius:3px;'></div> <div>Energy rings (global activity)</div>"
+                        "</div>", unsafe_allow_html=True)
+            st.markdown("<div style='display:flex; gap:0.5rem; align-items:center; margin-top:6px;'>"
+                        "<div style='width:14px; height:14px; background:#38bdf8; border-radius:3px;'></div> <div>Your satellite (moving)</div>"
+                        "</div>", unsafe_allow_html=True)
+
+            st.markdown("**What this means:** Solar storms can disrupt radios, damage electronics, and increase charging. During peaks, strong events are more frequent — consider hardened comms and safe modes around those years.")
+            st.markdown("**Try this:** Toggle autoplay or change speed to watch how active regions and flares evolve — the blue diamond is your satellite and the red lines are energetic flares.")
+
+    else:
+        # Space Debris: show 3D debris field with in-plot legend markers and a right-side visual legend
+        st.markdown("#### Debris Field 3D View")
+
+        col_left_d, col_right_d = st.columns([2, 1])
+
+        with col_left_d:
+            num_debris = 140
+            radius = 6371 + altitude_km
+            debris_data = {'x': [], 'y': [], 'z': [], 'size': [], 'color': []}
+            for _ in range(num_debris):
+                theta = np.random.random() * 2 * np.pi
+                phi = np.random.random() * np.pi
+                r = radius * (1 + (np.random.random() - 0.5) * 0.08)
+                x = r * np.sin(phi) * np.cos(theta)
+                y = r * np.sin(phi) * np.sin(theta)
+                z = r * np.cos(phi)
+                debris_data['x'].append(x); debris_data['y'].append(y); debris_data['z'].append(z)
+                size = np.random.choice([3, 5, 8])
+                color = np.random.choice(['#ff6b6b', '#ffd93d', '#4dabf7'])
+                debris_data['size'].append(size); debris_data['color'].append(color)
+
+            # Build the 3D figure and then append in-plot legend markers (positioned off to the side)
+            fig = plot_orbit_3d(altitude_km, inclination_deg, debris_data)
+
+            # Add representative markers (legend) in the 3D scene to visually indicate size/color mapping
+            legend_radius = radius * 1.14
+            legend_x = [legend_radius, legend_radius, legend_radius]
+            legend_y = [0, legend_radius * 0.08, -legend_radius * 0.08]
+            legend_z = [0, legend_radius * 0.04, -legend_radius * 0.04]
+            legend_sizes = [10, 6, 3]
+            legend_colors = ['#ff6b6b', '#ffd93d', '#4dabf7']
+            legend_texts = ['Big junk', 'Medium junk', 'Small bits']
+
+            fig.add_trace(go.Scatter3d(x=[legend_x[0]], y=[legend_y[0]], z=[legend_z[0]], mode='markers+text',
+                                       marker=dict(size=legend_sizes[0], color=legend_colors[0]), text=[legend_texts[0]],
+                                       textposition='middle right', showlegend=False))
+            fig.add_trace(go.Scatter3d(x=[legend_x[1]], y=[legend_y[1]], z=[legend_z[1]], mode='markers+text',
+                                       marker=dict(size=legend_sizes[1], color=legend_colors[1]), text=[legend_texts[1]],
+                                       textposition='middle right', showlegend=False))
+            fig.add_trace(go.Scatter3d(x=[legend_x[2]], y=[legend_y[2]], z=[legend_z[2]], mode='markers+text',
+                                       marker=dict(size=legend_sizes[2], color=legend_colors[2]), text=[legend_texts[2]],
+                                       textposition='middle right', showlegend=False))
+
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col_right_d:
+            st.markdown("**Legend (visual):**)")
+            st.markdown("<div style='display:flex; flex-direction:column; gap:8px;'>"
+                        "<div style='display:flex; gap:8px; align-items:center;'><div style='width:18px; height:18px; background:#ff6b6b; border-radius:4px;'></div> <div>Big junk — high impact</div></div>"
+                        "<div style='display:flex; gap:8px; align-items:center;'><div style='width:14px; height:14px; background:#ffd93d; border-radius:4px;'></div> <div>Medium junk — moderate</div></div>"
+                        "<div style='display:flex; gap:8px; align-items:center;'><div style='width:10px; height:10px; background:#4dabf7; border-radius:4px;'></div> <div>Small bits — nuisance</div></div>"
+                        "</div>", unsafe_allow_html=True)
+
+            st.markdown("**Tip:** Rotate the 3D view to see how the satellite path passes through the debris shell. Use the size & color to judge collision severity.")
 
 # ---- TAB 3: 3D Orbit & Deorbit View ----
 
@@ -499,56 +748,65 @@ with tab3:
     try:
         import pydeck as pdk
 
-        # Build orbit polyline
-        orbit_data = generate_orbit_path(altitude_km, inclination_deg)
+        # Convert orbit points to DataFrame for PathLayer
+        orbit_points = []
+        num_points = 180
+        inc = math.radians(inclination_deg)
+        
+        for i in range(num_points + 1):
+            theta = 2 * math.pi * (i / num_points)
+            lat = math.degrees(math.asin(math.sin(inc) * math.sin(theta)))
+            lon = math.degrees(theta) - 180
+            orbit_points.append({"lon": lon, "lat": lat})
+            
+        orbit_df = pd.DataFrame(orbit_points)
+        orbit_df["path"] = [[[row.lon, row.lat]] for _, row in orbit_df.iterrows()]
 
+        # Create orbit path layer
         orbit_layer = pdk.Layer(
             "PathLayer",
-            data=orbit_data,
+            orbit_df,
             get_path="path",
-            get_width=200000,
+            get_width=20000,
             width_min_pixels=2,
             get_color=[56, 189, 248],
-            opacity=0.9,
+            pickable=True
         )
 
+        # Create deorbit point layer
+        deorbit_df = pd.DataFrame({
+            "lon": [deorbit["predicted_longitude"]],
+            "lat": [deorbit["predicted_latitude"]]
+        })
+        
         deorbit_layer = pdk.Layer(
             "ScatterplotLayer",
-            data=pd.DataFrame(
-                {
-                    "lat": [deorbit["predicted_latitude"]],
-                    "lon": [deorbit["predicted_longitude"]],
-                }
-            ),
+            deorbit_df,
             get_position=["lon", "lat"],
-            get_radius=600000,
+            get_radius=100000,
             get_fill_color=[239, 68, 68],
-            opacity=0.95,
+            pickable=True
         )
 
+        # Set up the view state
         view_state = pdk.ViewState(
             latitude=0,
             longitude=0,
-            zoom=0,      # 0 shows full globe
-            min_zoom=0,
-            max_zoom=4,
-            pitch=25,
-            bearing=20,
+            zoom=1,
+            min_zoom=1,
+            max_zoom=3,
+            pitch=50,
+            bearing=0
         )
 
-        globe_view = pdk.View(
-            "GlobeView",
-            controller=True,
-        )
-
-        deck = pdk.Deck(
-            views=[globe_view],
-            layers=[orbit_layer, deorbit_layer],
+        # Create and display the deck
+        r = pdk.Deck(
+            map_style=None,
             initial_view_state=view_state,
-            tooltip={"text": "Orbit path / Deorbit focus"},
+            layers=[orbit_layer, deorbit_layer]
         )
 
-        st.pydeck_chart(deck)
+        st.pydeck_chart(r)
 
     except Exception as e:
         st.error(f"3D globe visualization unavailable: {e}")
