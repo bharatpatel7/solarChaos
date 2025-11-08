@@ -1,31 +1,44 @@
 from skyfield.api import load, EarthSatellite
 import requests
 
-# --- 1. Get Satellite Metadata from OBDH.space ---
+# --- 1. Local Metadata Fallback ---
+SATELLITE_METADATA = {
+    25544: {
+        "name": "ISS (ZARYA)",
+        "launch_date": "1998-11-20",
+        "launch_site": "Baikonur Cosmodrome",
+        "operator": "Roscosmos / NASA",
+        "status": "Active",
+        "decay_date": None,
+        "object_type": "Space Station"
+    },
+    20580: {
+        "name": "Hubble Space Telescope",
+        "launch_date": "1990-04-24",
+        "launch_site": "Kennedy Space Center",
+        "operator": "NASA",
+        "status": "Active",
+        "decay_date": None,
+        "object_type": "Telescope"
+    },
+    39084: {
+        "name": "NOAA-20",
+        "launch_date": "2017-11-18",
+        "launch_site": "Vandenberg AFB",
+        "operator": "NOAA",
+        "status": "Active",
+        "decay_date": None,
+        "object_type": "Weather Satellite"
+    }
+}
+
 def get_satellite_metadata(norad_id: int):
     """
-    Fetch launch info, status, and decay history for a satellite using NORAD ID.
+    Return satellite metadata from local dictionary.
     """
-    try:
-        url = f"https://api.obdh.space/satellite/{norad_id}"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-
-        return {
-            "name": data.get("OBJECT_NAME"),
-            "launch_date": data.get("LAUNCH_DATE"),
-            "launch_site": data.get("LAUNCH_SITE"),
-            "operator": data.get("OBJECT_OWNER"),
-            "status": data.get("OBJECT_STATUS"),
-            "decay_date": data.get("DECAY_DATE"),
-            "object_type": data.get("OBJECT_TYPE")
-        }
-    except Exception as e:
-        return {"error": f"Failed to fetch metadata: {e}"}
+    return SATELLITE_METADATA.get(norad_id, {"error": "Metadata not available for this satellite."})
 
 # --- 2. Get Live Orbital Position from CelesTrak TLE ---
-
-
 def get_live_position(norad_id: int):
     """
     Fetch current latitude, longitude, and altitude using TLE data from CelesTrak.
@@ -49,10 +62,9 @@ def get_live_position(norad_id: int):
     except Exception as e:
         return {"error": f"Failed to fetch position: {e}"}
 
-#test code
+# --- Test Code ---
 if __name__ == "__main__":
-    # Example: ISS (ZARYA) has NORAD ID 25544
-    norad_id = 25544
+    norad_id = 25544  # ISS
 
     meta = get_satellite_metadata(norad_id)
     print("📄 Metadata:", meta)
