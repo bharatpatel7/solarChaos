@@ -42,8 +42,18 @@ st.subheader("🗑️ Debris Collision Risk")
 st.write(f"Zone: **{debris['debris_zone']}**")
 st.write(f"Risk Level: **{debris['collision_risk_level']}** (Score: {debris['collision_risk_score']})")
 
+from real_satellite_data import get_satellite_metadata, get_live_position
 
+norad_id = st.sidebar.selectbox("Choose Satellite", [25544, 20580, 39084], format_func=lambda x: {25544: "ISS", 20580: "Hubble", 39084: "NOAA-20"}[x])
 
+meta = get_satellite_metadata(norad_id)
+pos = get_live_position(norad_id)
+
+st.subheader("📄 Satellite Metadata")
+st.write(meta)
+
+st.subheader("📍 Live Orbital Position")
+st.write(pos)
 
 
 
