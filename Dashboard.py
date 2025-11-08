@@ -139,7 +139,7 @@ def plot_orbit_3d(altitude_km, inclination_deg, debris_data=None):
 
 st.set_page_config(
     page_title="SolarChaos | Satellite Lifecycle & Risk Forecaster",
-    page_icon="🛰️",
+    page_icon="🚀",
     layout="wide",
 )
 
@@ -147,73 +147,152 @@ st.set_page_config(
 
 st.markdown(
     """
-    <style>
-    .stApp {
-        background: radial-gradient(circle at top, #0f172a 0, #020817 35%, #000000 100%);
-        color: #e5e7eb;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro", sans-serif;
+        <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+    :root {
+        --space-text: #e2e8f0;
+        --space-muted: #94a3b8;
+        --space-card: rgba(7,12,32,0.82);
+        --space-card-border: rgba(99,102,241,0.35);
+        --space-accent: #38bdf8;
     }
+    .stApp {
+        position: relative;
+        min-height: 100vh;
+        background-color: #01030f;
+        background-image:
+            radial-gradient(circle at 20% 20%, rgba(59,130,246,0.25), transparent 42%),
+            radial-gradient(circle at 80% 15%, rgba(236,72,153,0.18), transparent 45%),
+            radial-gradient(circle at 10% 85%, rgba(34,211,238,0.26), transparent 55%),
+            radial-gradient(circle at 65% 75%, rgba(147,197,253,0.18), transparent 45%),
+            linear-gradient(135deg, #01030f 0%, #030618 38%, #040018 100%);
+        background-attachment: fixed;
+        color: var(--space-text);
+        font-family: 'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif;
+    }
+    .stApp::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+            radial-gradient(1px 1px at 20% 30%, rgba(248,250,252,0.45), transparent),
+            radial-gradient(2px 2px at 60% 10%, rgba(96,165,250,0.45), transparent),
+            radial-gradient(1.5px 1.5px at 35% 80%, rgba(34,211,238,0.35), transparent),
+            radial-gradient(1px 1px at 85% 60%, rgba(248,250,252,0.4), transparent);
+        opacity: 0.35;
+        pointer-events: none;
+        z-index: 0;
+    }
+    .stApp > div {
+        position: relative;
+        z-index: 1;
+    }
+
     #MainMenu, footer {visibility: hidden;}
     header {background: transparent;}
 
     .solar-card {
-        padding: 1.3rem 1.5rem;
-        border-radius: 18px;
-        background: rgba(15,23,42,0.85);
-        border: 1px solid rgba(148,163,253,0.18);
-        box-shadow: 0 18px 40px rgba(15,23,42,0.9);
-        backdrop-filter: blur(18px);
-        transition: all 0.25s ease;
+        padding: 1.3rem 1.6rem;
+        border-radius: 22px;
+        background: var(--space-card);
+        border: 1px solid var(--space-card-border);
+        box-shadow: 0 25px 50px rgba(2,6,23,0.9), 0 0 45px rgba(14,165,233,0.25);
+        backdrop-filter: blur(24px);
+        transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
     }
     .solar-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 24px 65px rgba(56,189,248,0.25);
-        border-color: rgba(129,140,248,0.55);
+        transform: translateY(-4px);
+        border-color: rgba(56,189,248,0.8);
+        box-shadow: 0 30px 65px rgba(3,7,18,0.95), 0 0 60px rgba(56,189,248,0.35);
     }
 
     .solar-metric-label {
         font-size: 0.75rem;
         text-transform: uppercase;
         letter-spacing: 0.12em;
-        color: #9ca3af;
+        color: var(--space-muted);
     }
     .solar-metric-value {
-        font-size: 1.6rem;
+        font-size: 1.65rem;
         font-weight: 700;
-        color: #38bdf8;
+        color: var(--space-accent);
+        text-shadow: 0 0 12px rgba(56,189,248,0.45);
     }
     .solar-pill {
         display: inline-flex;
         align-items: center;
         gap: 0.45rem;
-        padding: 0.25rem 0.7rem;
+        padding: 0.3rem 0.85rem;
         border-radius: 999px;
-        background: rgba(15,23,42,0.9);
-        border: 1px solid rgba(148,163,253,0.35);
+        background: rgba(8,12,40,0.9);
+        border: 1px solid rgba(59,130,246,0.35);
         font-size: 0.72rem;
-        color: #9ca3af;
+        color: var(--space-muted);
+        box-shadow: inset 0 0 12px rgba(59,130,246,0.2);
     }
     .section-label {
         font-size: 0.72rem;
         text-transform: uppercase;
-        letter-spacing: 0.16em;
-        color: #6b7280;
+        letter-spacing: 0.2em;
+        color: rgba(148,163,184,0.9);
     }
     .big-title {
-        font-size: 2.15rem;
+        font-size: 2.4rem;
         font-weight: 800;
-        letter-spacing: 0.04em;
-        color: #e5e7eb;
+        letter-spacing: 0.05em;
+        color: var(--space-text);
+        text-shadow: 0 0 30px rgba(15,118,255,0.35);
     }
     .sub-title {
-        font-size: 0.9rem;
-        color: #9ca3af;
+        font-size: 0.95rem;
+        color: var(--space-muted);
     }
-    .accent { color: #38bdf8; }
-    .risk-high { color:#f97316; }
-    .risk-medium { color:#fde047; }
-    .risk-low { color:#22c55e; }
+    .accent { color: var(--space-accent); }
+    .risk-high { color:#fb7185; }
+    .risk-medium { color:#facc15; }
+    .risk-low { color:#34d399; }
+
+    .rocket-launch {
+        position: fixed;
+        bottom: 2.5rem;
+        left: calc(50% - 2rem);
+        width: 4rem;
+        z-index: 1000;
+        pointer-events: none;
+        animation: rocket-flight 6s ease-in-out forwards;
+    }
+    .rocket-emoji {
+        font-size: 3.5rem;
+        display: block;
+        text-align: center;
+        filter: drop-shadow(0 0 14px rgba(56,189,248,0.9));
+        animation: rocket-wiggle 1.1s ease-in-out infinite;
+    }
+    .rocket-trail {
+        width: 0.9rem;
+        height: 5rem;
+        margin: 0.4rem auto 0;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(248,250,252,0), rgba(248,113,113,0.85), rgba(251,191,36,0.9));
+        box-shadow: 0 0 25px rgba(251,191,36,0.65);
+        animation: trail-fade 6s ease-out forwards;
+    }
+    @keyframes rocket-flight {
+        0% { transform: translate(0, 0) scale(0.85); opacity: 0; }
+        15% { opacity: 1; }
+        100% { transform: translate(0, -450px) scale(1.25); opacity: 0; }
+    }
+    @keyframes rocket-wiggle {
+        0%,100% { transform: translateX(0); }
+        50% { transform: translateX(-6px); }
+    }
+    @keyframes trail-fade {
+        0% { opacity: 0; height: 0; }
+        20% { opacity: 1; height: 5rem; }
+        100% { opacity: 0; height: 7rem; }
+    }
     </style>
+    
     """,
     unsafe_allow_html=True,
 )
@@ -649,7 +728,7 @@ with tab2:
                     }]
                 )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col_right:
             # Informational side panel with visual indicators
@@ -718,7 +797,7 @@ with tab2:
                                        marker=dict(size=legend_sizes[2], color=legend_colors[2]), text=[legend_texts[2]],
                                        textposition='middle right', showlegend=False))
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col_right_d:
             st.markdown("**Legend (visual):**)")
@@ -921,7 +1000,7 @@ with tab3:
                     }]
                 )
 
-            st.plotly_chart(fig_orbit, use_container_width=True)
+            st.plotly_chart(fig_orbit, width='stretch')
 
         with col_info:
             # Orbital metrics and interactive scrubber
@@ -999,4 +1078,13 @@ with tab4:
 # One-time flair
 if "launched" not in st.session_state:
     st.session_state["launched"] = True
-    st.balloons()
+    st.markdown(
+        """
+        <div class="rocket-launch">
+            <div class="rocket-emoji">🚀</div>
+            <div class="rocket-trail"></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
