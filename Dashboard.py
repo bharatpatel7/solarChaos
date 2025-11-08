@@ -7,6 +7,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sgp4.earth_gravity import wgs84
 from sgp4.io import twoline2rv
+import requests
+from io import BytesIO
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 from satellite_modules import (
     satellite_age_and_EOL,
@@ -745,72 +751,211 @@ with tab3:
         unsafe_allow_html=True,
     )
 
+    # Replace pydeck globe with an exterior Plotly 3D view showing the Earth, an animated orbit trail
+    # and a moving satellite marker plus the predicted deorbit footprint. Add visual polish (atmosphere, stars)
     try:
-        import pydeck as pdk
+        st.markdown("#### Interactive 3D Orbit (exterior view)")
 
-        # Convert orbit points to DataFrame for PathLayer
-        orbit_points = []
-        num_points = 180
-        inc = math.radians(inclination_deg)
-        
-        for i in range(num_points + 1):
-            theta = 2 * math.pi * (i / num_points)
-            lat = math.degrees(math.asin(math.sin(inc) * math.sin(theta)))
-            lon = math.degrees(theta) - 180
-            orbit_points.append({"lon": lon, "lat": lat})
-            
-        orbit_df = pd.DataFrame(orbit_points)
-        orbit_df["path"] = [[[row.lon, row.lat]] for _, row in orbit_df.iterrows()]
+        # Layout: figure left, info right
+        col_fig, col_info = st.columns([3, 1])
 
-        # Create orbit path layer
-        orbit_layer = pdk.Layer(
-            "PathLayer",
-            orbit_df,
-            get_path="path",
-            get_width=20000,
-            width_min_pixels=2,
-            get_color=[56, 189, 248],
-            pickable=True
-        )
+        with col_fig:
+            # Controls
+            play_orbit = st.checkbox("Autoplay orbit", value=True, key="orbit_autoplay")
+            orbit_speed = st.slider("Orbit animation speed (ms per frame)", 30, 1000, 100, step=10, key="orbit_speed")
 
-        # Create deorbit point layer
-        deorbit_df = pd.DataFrame({
-            "lon": [deorbit["predicted_longitude"]],
-            "lat": [deorbit["predicted_latitude"]]
-        })
-        
-        deorbit_layer = pdk.Layer(
-            "ScatterplotLayer",
-            deorbit_df,
-            get_position=["lon", "lat"],
-            get_radius=100000,
-            get_fill_color=[239, 68, 68],
-            pickable=True
-        )
+            orbit_points = generate_orbit_path(altitude_km, inclination_deg, num_points=360)
 
-        # Set up the view state
-        view_state = pdk.ViewState(
-            latitude=0,
-            longitude=0,
-            zoom=1,
-            min_zoom=1,
-            max_zoom=3,
-            pitch=50,
-            bearing=0
-        )
+            # Convert deorbit lat/lon to xyz
+            def latlon_to_xyz(lat_deg, lon_deg, radius_km=6371.0, alt_offset_km=1.0):
+                lat = math.radians(lat_deg)
+                lon = math.radians(lon_deg)
+                R = radius_km + alt_offset_km
+                x = R * math.cos(lat) * math.cos(lon)
+                y = R * math.cos(lat) * math.sin(lon)
+                z = R * math.sin(lat)
+                return x, y, z
 
-        # Create and display the deck
-        r = pdk.Deck(
-            map_style=None,
-            initial_view_state=view_state,
-            layers=[orbit_layer, deorbit_layer]
-        )
+            d_x, d_y, d_z = latlon_to_xyz(deorbit['predicted_latitude'], deorbit['predicted_longitude'], alt_offset_km=5.0)
 
-        st.pydeck_chart(r)
+            # Earth mesh (km scale)
+            R_scene = 6371.0
+            phi = np.linspace(0, 2*np.pi, 120)
+            theta = np.linspace(-np.pi/2, np.pi/2, 60)
+            phi, theta = np.meshgrid(phi, theta)
+            xe = R_scene * np.cos(theta) * np.cos(phi)
+            ye = R_scene * np.cos(theta) * np.sin(phi)
+            ze = R_scene * np.sin(theta)
+
+            # Atmosphere (a slightly larger translucent sphere)
+            ae = 1.0125 * R_scene
+            xe_a = ae * np.cos(theta) * np.cos(phi)
+            ye_a = ae * np.cos(theta) * np.sin(phi)
+            ze_a = ae * np.sin(theta)
+
+            # starfield for background
+            rng = np.random.RandomState(42)
+            n_stars = 200
+            star_r = R_scene * 18
+            star_theta = rng.rand(n_stars) * np.pi
+            star_phi = rng.rand(n_stars) * 2 * np.pi
+            stars_x = star_r * np.sin(star_theta) * np.cos(star_phi)
+            stars_y = star_r * np.sin(star_theta) * np.sin(star_phi)
+            stars_z = star_r * np.cos(star_theta)
+
+            # Orbit arrays
+            orbit_x = orbit_points[:, 0]
+            orbit_y = orbit_points[:, 1]
+            orbit_z = orbit_points[:, 2]
+
+            # Build base traces
+            traces = []
+            # stars (behind everything)
+            traces.append(go.Scatter3d(x=stars_x, y=stars_y, z=stars_z, mode='markers', marker=dict(size=1.5, color='white', opacity=0.8), showlegend=False))
+            # earth surface: try to map a NASA Blue Marble texture at runtime; fallback to colorscale if unavailable
+            surface_mapped = False
+            texture_url = 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57730/land_ocean_ice_2048.jpg'
+            if Image is not None:
+                try:
+                    resp = requests.get(texture_url, timeout=6)
+                    img = Image.open(BytesIO(resp.content)).convert('RGB')
+                    # Resize image to mesh shape (theta rows x phi cols)
+                    h, w = xe.shape
+                    img = img.resize((w, h), Image.LANCZOS)
+                    arr = np.array(img)
+                    # Build surfacecolor as 2D array of 'rgb(r,g,b)'
+                    surfacecolor = []
+                    for row in arr:
+                        surfacecolor.append([f'rgb({r},{g},{b})' for r, g, b in row])
+
+                    traces.append(go.Surface(x=xe, y=ye, z=ze, surfacecolor=surfacecolor,
+                                             showscale=False, opacity=1.0,
+                                             lighting=dict(ambient=0.6, diffuse=0.6, specular=0.3, roughness=0.8, fresnel=0.2),
+                                             lightposition=dict(x=10000, y=10000, z=20000)))
+                    surface_mapped = True
+                except Exception:
+                    surface_mapped = False
+
+            if not surface_mapped:
+                traces.append(go.Surface(x=xe, y=ye, z=ze, colorscale='Earth', showscale=False, opacity=1.0))
+
+            # atmosphere glow
+            traces.append(go.Surface(x=xe_a, y=ye_a, z=ze_a, colorscale=[[0, 'rgba(135,206,250,0.02)'], [1, 'rgba(135,206,250,0.02)']], showscale=False, opacity=0.18))
+            # orbit path (strong line + faint glow behind it)
+            traces.append(go.Scatter3d(x=orbit_x, y=orbit_y, z=orbit_z, mode='lines', line=dict(color='#60a5fa', width=4), opacity=0.95, name='Orbit'))
+            traces.append(go.Scatter3d(x=orbit_x, y=orbit_y, z=orbit_z, mode='lines', line=dict(color='#60a5fa', width=18), opacity=0.08, name='OrbitGlow'))
+            # satellite marker and trail placeholders
+            traces.append(go.Scatter3d(x=[orbit_x[0]], y=[orbit_y[0]], z=[orbit_z[0]], mode='markers', marker=dict(size=7, color='#38bdf8'), name='Satellite'))
+            traces.append(go.Scatter3d(x=[orbit_x[0]], y=[orbit_y[0]], z=[orbit_z[0]], mode='markers', marker=dict(size=3, color='#60a5fa', opacity=0.9), name='Trail'))
+            # deorbit marker
+            traces.append(go.Scatter3d(x=[d_x], y=[d_y], z=[d_z], mode='markers+text', text=['Deorbit'], marker=dict(size=9, color='#ef4444'), textposition='top center', name='Deorbit'))
+
+            fig_orbit = go.Figure(data=traces)
+
+            # Prepare frames; sample to ~120 frames max
+            n_pts = len(orbit_x)
+            max_frames = 120
+            step = max(1, n_pts // max_frames)
+            indices = list(range(0, n_pts, step))
+            if indices[-1] != n_pts - 1:
+                indices.append(n_pts - 1)
+
+            frames = []
+            trail_len = 32
+            for idx in indices:
+                sat_x = orbit_x[idx]
+                sat_y = orbit_y[idx]
+                sat_z = orbit_z[idx]
+
+                # build fading trail colors for last trail_len points
+                start = max(0, idx - trail_len + 1)
+                trail_x = orbit_x[start: idx + 1]
+                trail_y = orbit_y[start: idx + 1]
+                trail_z = orbit_z[start: idx + 1]
+                n_trail = len(trail_x)
+                colors = []
+                for k in range(n_trail):
+                    alpha = (k + 1) / n_trail
+                    # ensure valid rgba string (close the parenthesis)
+                    colors.append(f'rgba(56,189,248,{alpha:.2f})')
+
+                # frame traces: keep static elements minimal by repeating essential visuals
+                frame_traces = [
+                    go.Surface(x=xe, y=ye, z=ze, showscale=False),
+                    go.Surface(x=xe_a, y=ye_a, z=ze_a, showscale=False, opacity=0.18),
+                    # orbit visible line + glow
+                    go.Scatter3d(x=orbit_x, y=orbit_y, z=orbit_z, mode='lines', line=dict(color='#60a5fa', width=4), opacity=0.95),
+                    go.Scatter3d(x=orbit_x, y=orbit_y, z=orbit_z, mode='lines', line=dict(color='#60a5fa', width=18), opacity=0.08),
+                    # satellite marker
+                    go.Scatter3d(x=[sat_x], y=[sat_y], z=[sat_z], mode='markers', marker=dict(size=7, color='#38bdf8')),
+                    # trail as markers with per-point rgba (fallback if client supports)
+                    go.Scatter3d(x=trail_x, y=trail_y, z=trail_z, mode='markers', marker=dict(size=3, color=colors)),
+                    # deorbit marker
+                    go.Scatter3d(x=[d_x], y=[d_y], z=[d_z], mode='markers+text', text=['Deorbit'], marker=dict(size=9, color='#ef4444'), textposition='top center')
+                ]
+
+                frames.append(go.Frame(data=frame_traces, name=str(idx)))
+
+            fig_orbit.frames = frames
+
+            # Zoom camera in for a larger, more immersive globe and set aspect ratio
+            fig_orbit.update_layout(
+                scene=dict(aspectmode='data',
+                           xaxis=dict(showbackground=False, visible=False),
+                           yaxis=dict(showbackground=False, visible=False),
+                           zaxis=dict(showbackground=False, visible=False),
+                           aspectratio=dict(x=1, y=1, z=0.62),
+                           camera=dict(eye=dict(x=1.6 * R_scene, y=0.9 * R_scene, z=0.7 * R_scene))),
+                margin=dict(l=0, r=0, t=30, b=0), paper_bgcolor='rgba(0,0,0,0)', showlegend=False
+            )
+
+            if play_orbit:
+                fig_orbit.update_layout(
+                    updatemenus=[{
+                        'type': 'buttons', 'showactive': False, 'y': 0.05, 'x': 0.05,
+                        'buttons': [{
+                            'label': 'Play Orbit',
+                            'method': 'animate',
+                            'args': [None, {"frame": {"duration": orbit_speed, "redraw": True}, "fromcurrent": True, "transition": {"duration": 0}}]
+                        }]
+                    }]
+                )
+
+            st.plotly_chart(fig_orbit, use_container_width=True)
+
+        with col_info:
+            # Orbital metrics and interactive scrubber
+            st.markdown("#### Orbit Details")
+            # orbital period (circular approx)
+            mu = 398600.4418  # Earth's GM, km^3/s^2
+            a = (6371.0 + altitude_km)
+            period_s = 2 * math.pi * math.sqrt((a ** 3) / mu)
+            period_min = period_s / 60.0
+            st.markdown(f"**Altitude:** {altitude_km} km")
+            st.markdown(f"**Inclination:** {inclination_deg}°")
+            st.markdown(f"**Orbital period:** {period_min:.1f} min")
+
+            # scrubber to inspect a frame
+            frame_idx = st.slider("Inspect frame", 0, max(0, len(indices) - 1), 0)
+            sel_idx = indices[frame_idx]
+            sx, sy, sz = orbit_x[sel_idx], orbit_y[sel_idx], orbit_z[sel_idx]
+            # convert to lat/lon/alt
+            r_sat = math.sqrt(sx*sx + sy*sy + sz*sz)
+            lat = math.degrees(math.asin(sz / r_sat))
+            lon = math.degrees(math.atan2(sy, sx))
+            alt_km = r_sat - 6371.0
+            st.markdown(f"**Frame:** {sel_idx} / {n_pts}")
+            st.markdown(f"**Latitude:** {lat:.2f}°")
+            st.markdown(f"**Longitude:** {lon:.2f}°")
+            st.markdown(f"**Instant altitude:** {alt_km:.1f} km")
+
+            st.markdown("---")
+            st.markdown("**Deorbit prediction**")
+            st.markdown(f"Lat: {deorbit['predicted_latitude']}°, Lon: {deorbit['predicted_longitude']}°, Year: {deorbit['predicted_deorbit_year']}")
 
     except Exception as e:
-        st.error(f"3D globe visualization unavailable: {e}")
-        st.info("Ensure `pydeck` is upgraded and this tab uses GlobeView exactly as shown.")
+        st.error(f"3D orbit visualization failed: {e}")
+        st.info("Plotly 3D visualization requires a modern browser. If problems persist, check your environment.")
 
 # ---- TAB 4: Technical Breakdown ----
 
