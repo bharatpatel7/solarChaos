@@ -1,5 +1,5 @@
+from skyfield.api import load, EarthSatellite
 import requests
-from skyfield.api import load
 
 # --- 1. Get Satellite Metadata from OBDH.space ---
 def get_satellite_metadata(norad_id: int):
@@ -24,6 +24,8 @@ def get_satellite_metadata(norad_id: int):
         return {"error": f"Failed to fetch metadata: {e}"}
 
 # --- 2. Get Live Orbital Position from CelesTrak TLE ---
+
+
 def get_live_position(norad_id: int):
     """
     Fetch current latitude, longitude, and altitude using TLE data from CelesTrak.
@@ -35,7 +37,7 @@ def get_live_position(norad_id: int):
             return {"error": "TLE data not found"}
 
         ts = load.timescale()
-        satellite = load.tle(lines[1], lines[2], ts)
+        satellite = EarthSatellite(lines[1], lines[2], lines[0], ts)
         now = ts.now()
         subpoint = satellite.at(now).subpoint()
 

@@ -1,5 +1,8 @@
 import streamlit as st
 from datetime import datetime
+import sys
+st.sidebar.write("Python path:", sys.executable)
+
 
 
 
