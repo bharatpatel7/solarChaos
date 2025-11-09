@@ -50,7 +50,7 @@
       z-index: 10;
       perspective: 1000px;
       transform-style: preserve-3d;
-      transition: transform 0.2s ease;
+      transition: transform 0.3s ease;
       animation: float 8s ease-in-out infinite;
     }
 
@@ -64,6 +64,12 @@
       margin-bottom: 10px;
       text-shadow: 0 0 25px #ff6f00, 0 0 50px #ff9100;
       animation: pulseGlow 2s infinite alternate;
+      transition: transform 0.3s ease, color 0.3s ease;
+    }
+
+    h1:hover {
+      transform: scale(1.1) rotate(5deg);
+      color: #ff9100;
     }
 
     @keyframes pulseGlow {
@@ -75,10 +81,16 @@
       font-size: 1.6em;
       opacity: 0;
       animation: fadeIn 3s forwards 1.5s;
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
     }
 
     @keyframes fadeIn {
-      to { opacity: 1; }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .content:hover .slogan {
+      transform: translateY(0) scale(1.05);
     }
 
     /* Holographic 3D Button */
@@ -96,7 +108,7 @@
       position: relative;
       overflow: hidden;
       box-shadow: 0 0 25px #ff9100;
-      transition: all 0.3s ease;
+      transition: all 0.3s ease, transform 0.4s ease;
     }
 
     .holo-button::before {
@@ -115,8 +127,12 @@
     }
 
     .holo-button:hover {
-      transform: scale(1.1) rotateY(10deg);
+      transform: scale(1.1) rotateY(10deg) translateZ(10px);
       box-shadow: 0 0 40px #ffb74d, 0 0 80px #ff9100;
+    }
+
+    .holo-button:active {
+      transform: scale(0.95) rotateY(0deg);
     }
 
     /* Info Columns */
@@ -140,13 +156,13 @@
       box-shadow: 0 0 20px rgba(255,255,255,0.1);
       backdrop-filter: blur(6px);
       transform: rotateY(0deg);
-      transition: transform 0.8s, box-shadow 0.8s;
+      transition: transform 0.6s, box-shadow 0.4s;
       animation: slideUp 1s ease forwards;
     }
 
     .column:hover {
-      transform: rotateY(8deg) scale(1.03);
-      box-shadow: 0 0 30px rgba(255,255,255,0.2);
+      transform: rotateY(10deg) scale(1.05);
+      box-shadow: 0 0 30px rgba(255,255,255,0.3);
     }
 
     @keyframes slideUp {
@@ -161,6 +177,11 @@
       font-size: 0.9em;
       position: relative;
       z-index: 5;
+      transition: transform 0.3s ease;
+    }
+
+    footer:hover {
+      transform: scale(1.02) rotate(1deg);
     }
   </style>
 </head>
@@ -207,9 +228,7 @@
     // Button link
     document.getElementById('navBtn').onclick = () => window.location.href = "http://localhost:8501";
 
-    // 3D Scene setup
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 2000);
+        // 3D Scene setup (continued)
     const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("bg"), antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(devicePixelRatio);
@@ -302,3 +321,4 @@
   </script>
 </body>
 </html>
+s
